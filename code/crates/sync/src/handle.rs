@@ -432,6 +432,14 @@ where
     }
 
     let Some(peer) = state.random_peer_for_votes(height, round) else {
+        for (peer_id, status) in &state.peers {
+            warn!(
+                peer = %peer_id,
+                %height,
+                peer_height = %status.height,
+                "Current status for peer"
+            );
+        }
         warn!(%height, %round, "No peer to request vote set from");
         return Ok(());
     };
