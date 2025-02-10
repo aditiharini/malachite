@@ -28,7 +28,7 @@ where
         }
 
         metrics.block_end();
-        metrics.finalized_blocks.inc();
+        metrics.finalized_block();
 
         metrics
             .consensus_round

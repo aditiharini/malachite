@@ -1,8 +1,10 @@
 use std::fmt::Write;
+use std::net::UdpSocket;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use cadence::{Counted, StatsdClient};
 use malachitebft_core_state_machine::state::Step;
 use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 use prometheus_client::metrics::counter::Counter;
@@ -11,13 +13,16 @@ use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::metrics::histogram::{exponential_buckets, linear_buckets, Histogram};
 
 #[derive(Clone, Debug)]
-pub struct Metrics(Arc<Inner>);
+pub struct Metrics {
+    inner: Arc<Inner>,
+    statsd_client: Arc<StatsdClient>,
+}
 
 impl Deref for Metrics {
     type Target = Inner;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
@@ -52,7 +57,7 @@ impl EncodeLabelValue for AsLabelValue<Step> {
 #[derive(Clone, Debug)]
 pub struct Inner {
     /// Number of blocks finalized
-    pub finalized_blocks: Counter,
+    finalized_blocks: Counter,
 
     /// Number of transactions finalized
     pub finalized_txes: Counter,
@@ -108,28 +113,38 @@ pub struct Inner {
 
 impl Metrics {
     pub fn new() -> Self {
-        Self(Arc::new(Inner {
-            finalized_blocks: Counter::default(),
-            finalized_txes: Counter::default(),
-            consensus_time: Histogram::new(linear_buckets(0.0, 0.1, 20)),
-            time_per_block: Histogram::new(linear_buckets(0.0, 0.1, 20)),
-            time_per_step: Family::new_with_constructor(|| {
-                Histogram::new(linear_buckets(0.0, 0.1, 20))
+        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+        Self {
+            inner: Arc::new(Inner {
+                finalized_blocks: Counter::default(),
+                finalized_txes: Counter::default(),
+                consensus_time: Histogram::new(linear_buckets(0.0, 0.1, 20)),
+                time_per_block: Histogram::new(linear_buckets(0.0, 0.1, 20)),
+                time_per_step: Family::new_with_constructor(|| {
+                    Histogram::new(linear_buckets(0.0, 0.1, 20))
+                }),
+                block_tx_count: Histogram::new(linear_buckets(0.0, 32.0, 128)),
+                block_size_bytes: Histogram::new(linear_buckets(0.0, 64.0 * 1024.0, 128)),
+                consensus_round: Histogram::new(linear_buckets(0.0, 1.0, 20)),
+                proposal_round: Histogram::new(linear_buckets(0.0, 1.0, 20)),
+                step_timeouts: Counter::default(),
+                connected_peers: Gauge::default(),
+                height: Gauge::default(),
+                round: Gauge::default(),
+                signature_signing_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
+                signature_verification_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
+                instant_consensus_started: Arc::new(AtomicInstant::empty()),
+                instant_block_started: Arc::new(AtomicInstant::empty()),
+                instant_step_started: Arc::new(Mutex::new((Step::Unstarted, Instant::now()))),
             }),
-            block_tx_count: Histogram::new(linear_buckets(0.0, 32.0, 128)),
-            block_size_bytes: Histogram::new(linear_buckets(0.0, 64.0 * 1024.0, 128)),
-            consensus_round: Histogram::new(linear_buckets(0.0, 1.0, 20)),
-            proposal_round: Histogram::new(linear_buckets(0.0, 1.0, 20)),
-            step_timeouts: Counter::default(),
-            connected_peers: Gauge::default(),
-            height: Gauge::default(),
-            round: Gauge::default(),
-            signature_signing_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
-            signature_verification_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
-            instant_consensus_started: Arc::new(AtomicInstant::empty()),
-            instant_block_started: Arc::new(AtomicInstant::empty()),
-            instant_step_started: Arc::new(Mutex::new((Step::Unstarted, Instant::now()))),
-        }))
+            statsd_client: Arc::new(
+                StatsdClient::builder(
+                    "malachite-consensus",
+                    cadence::UdpMetricSink::from(("127.0.0.1", 8125), socket).unwrap(),
+                )
+                .build(),
+            ),
+        }
     }
 
     pub fn register(registry: &SharedRegistry) -> Self {
@@ -228,6 +243,11 @@ impl Metrics {
         });
 
         metrics
+    }
+
+    pub fn finalized_block(&self) {
+        self.finalized_blocks.inc();
+        let _ = self.statsd_client.count("finalized_block", 1);
     }
 
     pub fn consensus_start(&self) {
