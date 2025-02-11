@@ -125,7 +125,7 @@ where
         request_timeout: config.request_timeout,
     };
 
-    let metrics = sync::Metrics::register(registry);
+    let metrics = sync::Metrics::register(registry, None, None);
 
     let actor_ref = Sync::spawn(ctx, network, host, params, metrics, Span::current()).await?;
 

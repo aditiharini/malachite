@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Instant;
 
+use cadence::{Counted, StatsdClient, Timed};
 use dashmap::DashMap;
 use malachitebft_metrics::prometheus::metrics::counter::Counter;
 use malachitebft_metrics::prometheus::metrics::histogram::{exponential_buckets, Histogram};
@@ -11,13 +12,17 @@ pub type DecidedValuesMetrics = Inner;
 pub type VoteSetMetrics = Inner;
 
 #[derive(Clone, Debug)]
-pub struct Metrics(Arc<(DecidedValuesMetrics, VoteSetMetrics)>);
+pub struct Metrics {
+    inner: Arc<(DecidedValuesMetrics, VoteSetMetrics)>,
+    statsd_client: Option<Arc<StatsdClient>>,
+    shard_id: Option<u32>,
+}
 
 impl Deref for Metrics {
     type Target = (Inner, Inner);
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.inner
     }
 }
 
@@ -58,23 +63,28 @@ impl Default for Inner {
 }
 
 impl Metrics {
-    pub fn new() -> Self {
-        Self(Arc::new((
-            DecidedValuesMetrics::new(),
-            VoteSetMetrics::new(),
-        )))
+    pub fn new(shard_id: Option<u32>, statsd_client: Option<Arc<StatsdClient>>) -> Self {
+        Self {
+            shard_id,
+            statsd_client,
+            inner: Arc::new((DecidedValuesMetrics::new(), VoteSetMetrics::new())),
+        }
     }
 
     fn decided_values(&self) -> &DecidedValuesMetrics {
-        &self.0 .0
+        &self.inner.0
     }
 
     fn vote_set(&self) -> &VoteSetMetrics {
-        &self.0 .1
+        &self.inner.1
     }
 
-    pub fn register(registry: &SharedRegistry) -> Self {
-        let metrics = Self::new();
+    pub fn register(
+        registry: &SharedRegistry,
+        statsd_client: Option<Arc<StatsdClient>>,
+        shard_id: Option<u32>,
+    ) -> Self {
+        let metrics = Self::new(shard_id, statsd_client);
 
         registry.with_prefix("malachitebft_sync", |registry| {
             // Value sync related metrics
@@ -167,11 +177,46 @@ impl Metrics {
         metrics
     }
 
+    fn count_with_shard(&self, key: &str, count: u64) {
+        match &self.statsd_client {
+            None => {}
+            Some(statsd_client) => match self.shard_id {
+                None => {
+                    let _ = statsd_client.count(format!("malachite.{}", key).as_str(), count);
+                }
+                Some(shard_id) => {
+                    statsd_client
+                        .count_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .with_tag("shard", format!("{}", shard_id).as_str())
+                        .send();
+                }
+            },
+        }
+    }
+
+    fn time_with_shard(&self, key: &str, count: u64) {
+        match &self.statsd_client {
+            None => {}
+            Some(statsd_client) => match self.shard_id {
+                None => {
+                    let _ = statsd_client.time(format!("malachite.{}", key).as_str(), count);
+                }
+                Some(shard_id) => {
+                    statsd_client
+                        .time_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .with_tag("shard", format!("{}", shard_id).as_str())
+                        .send();
+                }
+            },
+        }
+    }
+
     pub fn decided_value_request_sent(&self, height: u64) {
         self.decided_values().requests_sent.inc();
         self.decided_values()
             .instant_request_sent
             .insert((height, -1), Instant::now());
+        self.count_with_shard("decided_value_request_sent", 1);
     }
 
     pub fn decided_value_request_received(&self, height: u64) {
@@ -179,10 +224,12 @@ impl Metrics {
         self.decided_values()
             .instant_request_received
             .insert((height, -1), Instant::now());
+        self.count_with_shard("decided_value_request_received", 1);
     }
 
     pub fn decided_value_response_sent(&self, height: u64) {
         self.decided_values().responses_sent.inc();
+        self.count_with_shard("decided_value_response_sent", 1);
 
         if let Some((_, instant)) = self
             .decided_values()
@@ -192,11 +239,16 @@ impl Metrics {
             self.decided_values()
                 .server_latency
                 .observe(instant.elapsed().as_secs_f64());
+            self.time_with_shard(
+                "decided_value_server_latency",
+                instant.elapsed().as_millis() as u64,
+            );
         }
     }
 
     pub fn decided_value_response_received(&self, height: u64) {
         self.decided_values().responses_received.inc();
+        self.count_with_shard("decided_value_response_received", 1);
 
         if let Some((_, instant)) = self
             .decided_values()
@@ -206,6 +258,10 @@ impl Metrics {
             self.decided_values()
                 .client_latency
                 .observe(instant.elapsed().as_secs_f64());
+            self.time_with_shard(
+                "decided_value_client_latency",
+                instant.elapsed().as_millis() as u64,
+            );
         }
     }
 
@@ -214,10 +270,12 @@ impl Metrics {
         self.decided_values()
             .instant_request_sent
             .remove(&(height, 0));
+        self.count_with_shard("decided_value_request_timed_out", 1);
     }
 
     pub fn vote_set_request_sent(&self, height: u64, round: i64) {
         self.vote_set().requests_sent.inc();
+        self.count_with_shard("vote_set_request_sent", 1);
         self.vote_set()
             .instant_request_sent
             .insert((height, round), Instant::now());
@@ -225,6 +283,7 @@ impl Metrics {
 
     pub fn vote_set_request_received(&self, height: u64, round: i64) {
         self.vote_set().requests_received.inc();
+        self.count_with_shard("vote_set_request_received", 1);
         self.vote_set()
             .instant_request_received
             .insert((height, round), Instant::now());
@@ -232,6 +291,7 @@ impl Metrics {
 
     pub fn vote_set_response_sent(&self, height: u64, round: i64) {
         self.vote_set().responses_sent.inc();
+        self.count_with_shard("vote_set_response_sent", 1);
 
         if let Some((_, instant)) = self
             .vote_set()
@@ -241,11 +301,16 @@ impl Metrics {
             self.vote_set()
                 .server_latency
                 .observe(instant.elapsed().as_secs_f64());
+            self.time_with_shard(
+                "vote_set_server_latency",
+                instant.elapsed().as_millis() as u64,
+            );
         }
     }
 
     pub fn vote_set_response_received(&self, height: u64, round: i64) {
         self.vote_set().responses_received.inc();
+        self.count_with_shard("vote_set_response_received", 1);
 
         if let Some((_, instant)) = self
             .vote_set()
@@ -255,6 +320,10 @@ impl Metrics {
             self.vote_set()
                 .client_latency
                 .observe(instant.elapsed().as_secs_f64());
+            self.time_with_shard(
+                "vote_set_client_latency",
+                instant.elapsed().as_millis() as u64,
+            );
         }
     }
 
@@ -263,11 +332,12 @@ impl Metrics {
         self.vote_set()
             .instant_request_sent
             .remove(&(height, round));
+        self.count_with_shard("vote_set_request_timed_out", 1);
     }
 }
 
 impl Default for Metrics {
     fn default() -> Self {
-        Self::new()
+        Self::new(None, None)
     }
 }

@@ -17,7 +17,7 @@ where
         co,
         Effect::GetVoteSet(state.driver.height(), round, Default::default())
     );
-    metrics.step_timeouts.inc();
+    metrics.step_timeout();
 
     if state.driver.step_is_prevote() {
         perform!(

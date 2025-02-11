@@ -1,10 +1,9 @@
 use std::fmt::Write;
-use std::net::UdpSocket;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use cadence::{Counted, StatsdClient};
+use cadence::{Counted, Gauged, StatsdClient, Timed};
 use malachitebft_core_state_machine::state::Step;
 use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 use prometheus_client::metrics::counter::Counter;
@@ -15,7 +14,8 @@ use prometheus_client::metrics::histogram::{exponential_buckets, linear_buckets,
 #[derive(Clone, Debug)]
 pub struct Metrics {
     inner: Arc<Inner>,
-    statsd_client: Arc<StatsdClient>,
+    statsd_client: Option<Arc<StatsdClient>>,
+    shard_id: Option<u32>,
 }
 
 impl Deref for Metrics {
@@ -63,10 +63,10 @@ pub struct Inner {
     pub finalized_txes: Counter,
 
     /// Consensus time, in seconds
-    pub consensus_time: Histogram,
+    consensus_time: Histogram,
 
     /// Time taken to finalize a block, in seconds
-    pub time_per_block: Histogram,
+    time_per_block: Histogram,
 
     /// Time taken for a step within a round, in secodns
     pub time_per_step: Family<TimePerStep, Histogram>,
@@ -84,10 +84,10 @@ pub struct Inner {
     pub proposal_round: Histogram,
 
     /// Number of times consensus was blocked in Prevote or Precommit step and required vote synchronization
-    pub step_timeouts: Counter,
+    step_timeouts: Counter,
 
     /// Number of connected peers, ie. for each consensus node, how many peers is it connected to)
-    pub connected_peers: Gauge,
+    connected_peers: Gauge,
 
     /// Current height
     pub height: Gauge,
@@ -112,8 +112,7 @@ pub struct Inner {
 }
 
 impl Metrics {
-    pub fn new() -> Self {
-        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+    pub fn new(shard_id: Option<u32>, statsd_client: Option<Arc<StatsdClient>>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 finalized_blocks: Counter::default(),
@@ -137,18 +136,17 @@ impl Metrics {
                 instant_block_started: Arc::new(AtomicInstant::empty()),
                 instant_step_started: Arc::new(Mutex::new((Step::Unstarted, Instant::now()))),
             }),
-            statsd_client: Arc::new(
-                StatsdClient::builder(
-                    "malachite-consensus",
-                    cadence::UdpMetricSink::from(("127.0.0.1", 8125), socket).unwrap(),
-                )
-                .build(),
-            ),
+            statsd_client,
+            shard_id,
         }
     }
 
-    pub fn register(registry: &SharedRegistry) -> Self {
-        let metrics = Self::new();
+    pub fn register(
+        registry: &SharedRegistry,
+        shard_id: Option<u32>,
+        statsd_client: Option<Arc<StatsdClient>>,
+    ) -> Self {
+        let metrics = Self::new(shard_id, statsd_client);
 
         registry.with_prefix("malachitebft_core_consensus", |registry| {
             registry.register(
@@ -245,9 +243,70 @@ impl Metrics {
         metrics
     }
 
+    fn count_with_shard(&self, key: &str, count: u64) {
+        match &self.statsd_client {
+            None => {}
+            Some(statsd_client) => match self.shard_id {
+                None => {
+                    let _ = statsd_client.count(format!("malachite.{}", key).as_str(), count);
+                }
+                Some(shard_id) => {
+                    statsd_client
+                        .count_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .with_tag("shard", format!("{}", shard_id).as_str())
+                        .send();
+                }
+            },
+        }
+    }
+
+    fn gauge_with_shard(&self, key: &str, count: u64) {
+        match &self.statsd_client {
+            None => {}
+            Some(statsd_client) => match self.shard_id {
+                None => {
+                    let _ = statsd_client.gauge(format!("malachite.{}", key).as_str(), count);
+                }
+                Some(shard_id) => {
+                    statsd_client
+                        .gauge_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .with_tag("shard", format!("{}", shard_id).as_str())
+                        .send();
+                }
+            },
+        }
+    }
+
+    fn time_with_shard(&self, key: &str, count: u64) {
+        match &self.statsd_client {
+            None => {}
+            Some(statsd_client) => match self.shard_id {
+                None => {
+                    let _ = statsd_client.time(format!("malachite.{}", key).as_str(), count);
+                }
+                Some(shard_id) => {
+                    statsd_client
+                        .time_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .with_tag("shard", format!("{}", shard_id).as_str())
+                        .send();
+                }
+            },
+        }
+    }
+
     pub fn finalized_block(&self) {
         self.finalized_blocks.inc();
-        let _ = self.statsd_client.count("finalized_block", 1);
+        self.count_with_shard("finalized_block", 1);
+    }
+
+    pub fn peer_connected(&self, total_peers: u64) {
+        self.connected_peers.inc();
+        self.gauge_with_shard("connected_peers", total_peers);
+    }
+
+    pub fn peer_disconnected(&self, total_peers: u64) {
+        self.connected_peers.inc();
+        self.gauge_with_shard("connected_peers", total_peers);
     }
 
     pub fn consensus_start(&self) {
@@ -260,6 +319,10 @@ impl Metrics {
             self.consensus_time.observe(elapsed);
 
             self.instant_consensus_started.set_millis(0);
+            self.time_with_shard(
+                "consensus_time",
+                self.instant_consensus_started.elapsed().as_millis() as u64,
+            );
         }
     }
 
@@ -271,9 +334,18 @@ impl Metrics {
         if !self.instant_block_started.is_empty() {
             let elapsed = self.instant_block_started.elapsed().as_secs_f64();
             self.time_per_block.observe(elapsed);
+            self.time_with_shard(
+                "block_time",
+                self.instant_block_started.elapsed().as_millis() as u64,
+            );
 
             self.instant_block_started.set_millis(0);
         }
+    }
+
+    pub fn step_timeout(&self) {
+        self.step_timeouts.inc();
+        self.count_with_shard("step_timeouts", 1);
     }
 
     pub fn step_start(&self, step: Step) {
@@ -302,7 +374,7 @@ impl Metrics {
 
 impl Default for Metrics {
     fn default() -> Self {
-        Self::new()
+        Self::new(None, None)
     }
 }
 

@@ -28,6 +28,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+cadence = { workspace = true }
 
 [lints]
 workspace = true

@@ -329,14 +329,15 @@ where
 
                         debug!(connected = %connected_peers, total = %total_peers, "Connected to another peer");
 
-                        self.metrics.connected_peers.inc();
+                        self.metrics.peer_connected(total_peers as u64);
                     }
 
                     NetworkEvent::PeerDisconnected(peer_id) => {
                         info!(%peer_id, "Disconnected from peer");
 
                         if state.connected_peers.remove(&peer_id) {
-                            self.metrics.connected_peers.dec();
+                            self.metrics
+                                .peer_disconnected(state.connected_peers.len() as u64);
                         }
                     }
 
