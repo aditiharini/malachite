@@ -248,11 +248,12 @@ impl Metrics {
             None => {}
             Some(statsd_client) => match self.shard_id {
                 None => {
-                    let _ = statsd_client.count(format!("malachite.{}", key).as_str(), count);
+                    let _ =
+                        statsd_client.count(format!("malachite.consensus.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
                     statsd_client
-                        .count_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .count_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
                         .with_tag("shard", format!("{}", shard_id).as_str())
                         .send();
                 }
@@ -265,11 +266,12 @@ impl Metrics {
             None => {}
             Some(statsd_client) => match self.shard_id {
                 None => {
-                    let _ = statsd_client.gauge(format!("malachite.{}", key).as_str(), count);
+                    let _ =
+                        statsd_client.gauge(format!("malachite.consensus.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
                     statsd_client
-                        .gauge_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .gauge_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
                         .with_tag("shard", format!("{}", shard_id).as_str())
                         .send();
                 }
@@ -282,11 +284,12 @@ impl Metrics {
             None => {}
             Some(statsd_client) => match self.shard_id {
                 None => {
-                    let _ = statsd_client.time(format!("malachite.{}", key).as_str(), count);
+                    let _ =
+                        statsd_client.time(format!("malachite.consensus.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
                     statsd_client
-                        .time_with_tags(format!("malachite.{}", key).as_str(), count)
+                        .time_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
                         .with_tag("shard", format!("{}", shard_id).as_str())
                         .send();
                 }
