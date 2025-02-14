@@ -398,7 +398,7 @@ where
                         peer,
                         sync::Request::VoteSetRequest(VoteSetRequest { height, round }),
                     ) => {
-                        debug!(%height, %round, %request_id, %peer, "Received vote set request");
+                        info!(%height, %round, %request_id, %peer, "Received vote set request");
 
                         if let Err(e) = self
                             .process_input(
@@ -426,11 +426,11 @@ where
                         }),
                     ) => {
                         if vote_set.votes.is_empty() {
-                            debug!(%height, %round, %request_id, %peer, "Received an empty vote set response");
+                            info!(%height, %round, %request_id, %peer, "Received an empty vote set response");
                             return Ok(());
                         };
 
-                        debug!(%height, %round, %request_id, %peer, "Received a non-empty vote set response");
+                        info!(%height, %round, %request_id, %peer, "Received a non-empty vote set response");
 
                         if let Err(e) = self
                             .process_input(
@@ -941,7 +941,7 @@ where
             }
 
             Effect::GetVoteSet(height, round, r) => {
-                debug!(%height, %round, "Request sync to obtain the vote set from peers");
+                info!(%height, %round, "Request sync to obtain the vote set from peers");
 
                 if let Some(sync) = &self.sync {
                     sync.cast(SyncMsg::RequestVoteSet(height, round))
@@ -961,7 +961,7 @@ where
 
                 let request_id = InboundRequestId::new(request_id_str);
 
-                debug!(
+                info!(
                     %height, %round, %request_id, vote.count = %vote_count,
                     "Sending the vote set response"
                 );
