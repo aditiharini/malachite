@@ -36,6 +36,7 @@ use malachitebft_core_types::{Context, Proposal, Round, Validity, Value, ValueId
 use malachitebft_core_votekeeper::keeper::Output as VKOutput;
 use malachitebft_core_votekeeper::keeper::VoteKeeper;
 use malachitebft_core_votekeeper::Threshold;
+use tracing::info;
 
 use crate::Driver;
 
@@ -91,14 +92,23 @@ where
             return None;
         }
 
+        let is_vote_threshold_met = self.vote_keeper.is_threshold_met(
+            &proposal.pol_round(),
+            VoteType::Prevote,
+            Threshold::Value(proposal.value().id()),
+        );
+
+        info!(
+            "Categorizing proposal, is_vote_threshold_met {}, pol_round_defined {}, good_pol_round {}",
+            is_vote_threshold_met,
+            proposal.pol_round().is_defined(), 
+            proposal.pol_round() < self.round_state.round
+        );
+
         // Determine if there is a polka for a previous round
         let polka_previous = proposal.pol_round().is_defined()
             && proposal.pol_round() < self.round_state.round
-            && self.vote_keeper.is_threshold_met(
-                &proposal.pol_round(),
-                VoteType::Prevote,
-                Threshold::Value(proposal.value().id()),
-            );
+            && is_vote_threshold_met;
 
         // Handle invalid proposal
         if !validity.is_valid() {

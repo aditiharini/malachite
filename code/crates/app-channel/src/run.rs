@@ -35,7 +35,7 @@ where
     let start_height = start_height.unwrap_or_default();
 
     let registry = SharedRegistry::global().with_moniker(cfg.moniker.as_str());
-    let metrics = Metrics::register(&registry, None, None);
+    let metrics = Metrics::register(&registry, None, None, false);
 
     let private_key_file = node.load_private_key_file(private_key_file)?;
     let private_key = node.load_private_key(private_key_file);

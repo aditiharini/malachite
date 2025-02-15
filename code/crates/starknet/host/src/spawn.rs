@@ -43,7 +43,7 @@ pub async fn spawn_node_actor(
     let start_height = start_height.unwrap_or(Height::new(1, 1));
 
     let registry = SharedRegistry::global().with_moniker(cfg.moniker.as_str());
-    let metrics = Metrics::register(&registry, None, None);
+    let metrics = Metrics::register(&registry, None, None, false);
     let address = Address::from_public_key(private_key.public_key());
 
     // Spawn mempool and its gossip layer
@@ -148,7 +148,7 @@ async fn spawn_sync_actor(
         request_timeout: config.request_timeout,
     };
 
-    let metrics = sync::Metrics::register(registry, None, None);
+    let metrics = sync::Metrics::register(registry, None, None, false);
     let actor_ref = Sync::spawn(ctx, network, host, params, metrics, span.clone())
         .await
         .unwrap();

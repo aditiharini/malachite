@@ -321,23 +321,22 @@ where
                             return Ok(());
                         }
 
-                        info!(%peer_id, "Connected to peer");
-
                         let validator_set = state.consensus.validator_set();
                         let connected_peers = state.connected_peers.len();
                         let total_peers = validator_set.count() - 1;
 
+                        info!(%peer_id, total = %total_peers, connected = %connected_peers, "Connected to peer");
+
                         debug!(connected = %connected_peers, total = %total_peers, "Connected to another peer");
 
-                        self.metrics.peer_connected(total_peers as u64);
+                        self.metrics.peer_connected();
                     }
 
                     NetworkEvent::PeerDisconnected(peer_id) => {
                         info!(%peer_id, "Disconnected from peer");
 
                         if state.connected_peers.remove(&peer_id) {
-                            self.metrics
-                                .peer_disconnected(state.connected_peers.len() as u64);
+                            self.metrics.peer_disconnected();
                         }
                     }
 

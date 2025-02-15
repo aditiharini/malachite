@@ -1,6 +1,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
+use tracing::info;
 
 use malachitebft_core_state_machine::input::Input as RoundInput;
 use malachitebft_core_state_machine::output::Output as RoundOutput;
@@ -65,8 +66,6 @@ where
     ///
     /// Called when consensus is started and initialized with the first height.
     /// Re-initialization for subsequent heights is done using `move_to_height()`.
-    ///
-    /// TODO: Consider wrapping the validator set in a Arc to avoid cloning
     pub fn new(
         ctx: Ctx,
         height: Ctx::Height,
@@ -391,6 +390,7 @@ where
 
         // Apply the input to the round state machine
         let transition = round_state.apply(&info, input);
+        info!("Applying transition: valid: {}", transition.valid);
 
         // Update state
         self.round_state = transition.next_state;

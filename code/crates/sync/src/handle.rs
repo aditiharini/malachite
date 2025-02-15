@@ -432,6 +432,9 @@ where
     }
 
     let Some(peer) = state.random_peer_for_votes(height, round) else {
+        if state.peers.len() == 0 {
+            warn!("No peers in peer set");
+        }
         for (peer_id, status) in &state.peers {
             warn!(
                 peer = %peer_id,

@@ -48,6 +48,13 @@ where
                 return Ok(());
             }
 
+            info!(
+                "Processing proposal for height {}, round {}, pol_round {}, current height: {}",
+                proposal.height(),
+                proposal.round(),
+                proposal.pol_round(),
+                state.driver.height()
+            );
             perform!(
                 co,
                 Effect::CancelTimeout(Timeout::propose(proposal.round()), Default::default())

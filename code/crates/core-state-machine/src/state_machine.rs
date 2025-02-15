@@ -7,6 +7,7 @@ use crate::input::Input;
 use crate::output::Output;
 use crate::state::{State, Step};
 use crate::transition::Transition;
+use tracing::info;
 
 /// Immutable information about the input and our node:
 /// - Address of our node
@@ -73,6 +74,36 @@ where
     Ctx: Context,
 {
     let this_round = state.round == info.input_round;
+    let step = match state.step {
+        Step::Unstarted => "Unstarted",
+        Step::Propose => "Propose",
+        Step::Prevote => "Prevote",
+        Step::Precommit => "Precommit",
+        Step::Commit => "Commit",
+    };
+    let input_str = match input {
+        Input::NoInput => "NoInput",
+        Input::NewRound(_) => "NewRound",
+        Input::ProposeValue(_) => "ProposeValue",
+        Input::Proposal(_) => "Proposal",
+        Input::InvalidProposal => "InvalidProposal",
+        Input::ProposalAndPolkaPrevious(_) => "ProposalAndPolkaPrevious",
+        Input::InvalidProposalAndPolkaPrevious(_) => "InvalidProposalAndPolkaPrevious",
+        Input::PolkaAny => "PolkaAny",
+        Input::PolkaNil => "PolkaNil",
+        Input::ProposalAndPolkaCurrent(_) => "ProposalAndPolkaCurrent",
+        Input::PrecommitAny => "PrecommitAny",
+        Input::ProposalAndPrecommitValue(_) => "ProposalAndPrecommitValue",
+        Input::PrecommitValue(_) => "PrecommitValue",
+        Input::SkipRound(_) => "SkipRound",
+        Input::TimeoutPropose => "TimeoutPropose",
+        Input::TimeoutPrevote => "TimeoutPrevote",
+        Input::TimeoutPrecommit => "TimeoutPrecommit",
+    };
+    info!(
+        "Applying step to state machine: step {}, input {}",
+        step, input_str
+    );
 
     match (state.step, input) {
         //
@@ -107,6 +138,7 @@ where
 
         // L18
         (Step::Propose, Input::ProposeValue(value)) if this_round => {
+            info!("Waiting to propose");
             debug_assert!(info.is_proposer());
 
             propose(state, value, info.address)
@@ -117,17 +149,22 @@ where
             if this_round && proposal.pol_round().is_nil() =>
         {
             debug_trace!(state, Line::L22);
+            info!("Valid proposal");
 
             prevote(state, info.address, &proposal)
         }
 
         // L22 with invalid proposal
-        (Step::Propose, Input::InvalidProposal) if this_round => prevote_nil(state, info.address),
+        (Step::Propose, Input::InvalidProposal) if this_round => {
+            info!("InvalidProposal");
+            prevote_nil(state, info.address)
+        }
 
         // L28 with valid proposal
         (Step::Propose, Input::ProposalAndPolkaPrevious(proposal))
             if this_round && is_valid_pol_round(&state, proposal.pol_round()) =>
         {
+            info!("ProposalAndPolkaPrevious");
             debug_trace!(state, Line::L28ValidProposal);
             prevote_previous(state, info.address, &proposal)
         }
@@ -136,6 +173,7 @@ where
         (Step::Propose, Input::InvalidProposalAndPolkaPrevious(proposal))
             if this_round && is_valid_pol_round(&state, proposal.pol_round()) =>
         {
+            info!("InvalidProposalAndPolkaPrevious");
             debug_trace!(state, Line::L28InvalidProposal);
             debug_trace!(state, Line::L32InvalidValue);
 
@@ -145,6 +183,7 @@ where
         // L57
         // We are the proposer.
         (Step::Propose, Input::TimeoutPropose) if this_round && info.is_proposer() => {
+            info!("TimeoutPropose as proposer");
             debug_trace!(state, Line::L59Proposer);
 
             prevote_nil(state, info.address)
@@ -153,6 +192,7 @@ where
         // L57
         // We are not the proposer.
         (Step::Propose, Input::TimeoutPropose) if this_round => {
+            info!("TimeoutPropose not proposer");
             debug_trace!(state, Line::L59NonProposer);
 
             prevote_nil(state, info.address)
@@ -366,6 +406,7 @@ pub fn prevote_previous<Ctx>(
 where
     Ctx: Context,
 {
+    info!("Got to revote_previoius");
     let vr = proposal.pol_round();
     assert!(vr >= Round::Some(0));
     assert!(vr < proposal.round());

@@ -16,6 +16,7 @@ pub struct Metrics {
     inner: Arc<(DecidedValuesMetrics, VoteSetMetrics)>,
     statsd_client: Option<Arc<StatsdClient>>,
     shard_id: Option<u32>,
+    use_tags: bool,
 }
 
 impl Deref for Metrics {
@@ -63,11 +64,16 @@ impl Default for Inner {
 }
 
 impl Metrics {
-    pub fn new(shard_id: Option<u32>, statsd_client: Option<Arc<StatsdClient>>) -> Self {
+    pub fn new(
+        shard_id: Option<u32>,
+        statsd_client: Option<Arc<StatsdClient>>,
+        use_tags: bool,
+    ) -> Self {
         Self {
             shard_id,
             statsd_client,
             inner: Arc::new((DecidedValuesMetrics::new(), VoteSetMetrics::new())),
+            use_tags,
         }
     }
 
@@ -83,8 +89,9 @@ impl Metrics {
         registry: &SharedRegistry,
         statsd_client: Option<Arc<StatsdClient>>,
         shard_id: Option<u32>,
+        use_tags: bool,
     ) -> Self {
-        let metrics = Self::new(shard_id, statsd_client);
+        let metrics = Self::new(shard_id, statsd_client, use_tags);
 
         registry.with_prefix("malachitebft_sync", |registry| {
             // Value sync related metrics
@@ -185,10 +192,17 @@ impl Metrics {
                     let _ = statsd_client.count(format!("malachite.sync.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
-                    statsd_client
-                        .count_with_tags(format!("malachite.sync.{}", key).as_str(), count)
-                        .with_tag("shard", format!("{}", shard_id).as_str())
-                        .send();
+                    if self.use_tags {
+                        statsd_client
+                            .count_with_tags(format!("malachite.sync.{}", key).as_str(), count)
+                            .with_tag("shard", format!("{}", shard_id).as_str())
+                            .send();
+                    } else {
+                        let _ = statsd_client.count(
+                            format!("shard{}.malachite.sync.{}", shard_id, key).as_str(),
+                            count,
+                        );
+                    }
                 }
             },
         }
@@ -202,10 +216,17 @@ impl Metrics {
                     let _ = statsd_client.time(format!("malachite.sync.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
-                    statsd_client
-                        .time_with_tags(format!("malachite.sync.{}", key).as_str(), count)
-                        .with_tag("shard", format!("{}", shard_id).as_str())
-                        .send();
+                    if self.use_tags {
+                        statsd_client
+                            .time_with_tags(format!("malachite.sync.{}", key).as_str(), count)
+                            .with_tag("shard", format!("{}", shard_id).as_str())
+                            .send();
+                    } else {
+                        let _ = statsd_client.time(
+                            format!("shard{}.malachite.sync.{}", shard_id, key).as_str(),
+                            count,
+                        );
+                    }
                 }
             },
         }
@@ -338,6 +359,6 @@ impl Metrics {
 
 impl Default for Metrics {
     fn default() -> Self {
-        Self::new(None, None)
+        Self::new(None, None, false)
     }
 }

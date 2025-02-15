@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use cadence::{Counted, Gauged, StatsdClient, Timed};
+use cadence::{Counted, StatsdClient, Timed};
 use malachitebft_core_state_machine::state::Step;
 use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 use prometheus_client::metrics::counter::Counter;
@@ -16,6 +16,7 @@ pub struct Metrics {
     inner: Arc<Inner>,
     statsd_client: Option<Arc<StatsdClient>>,
     shard_id: Option<u32>,
+    use_tags: bool,
 }
 
 impl Deref for Metrics {
@@ -112,7 +113,11 @@ pub struct Inner {
 }
 
 impl Metrics {
-    pub fn new(shard_id: Option<u32>, statsd_client: Option<Arc<StatsdClient>>) -> Self {
+    pub fn new(
+        shard_id: Option<u32>,
+        statsd_client: Option<Arc<StatsdClient>>,
+        use_tags: bool,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 finalized_blocks: Counter::default(),
@@ -138,6 +143,7 @@ impl Metrics {
             }),
             statsd_client,
             shard_id,
+            use_tags,
         }
     }
 
@@ -145,8 +151,9 @@ impl Metrics {
         registry: &SharedRegistry,
         shard_id: Option<u32>,
         statsd_client: Option<Arc<StatsdClient>>,
+        use_tags: bool,
     ) -> Self {
-        let metrics = Self::new(shard_id, statsd_client);
+        let metrics = Self::new(shard_id, statsd_client, use_tags);
 
         registry.with_prefix("malachitebft_core_consensus", |registry| {
             registry.register(
@@ -243,7 +250,7 @@ impl Metrics {
         metrics
     }
 
-    fn count_with_shard(&self, key: &str, count: u64) {
+    fn count_with_shard(&self, key: &str, count: i64) {
         match &self.statsd_client {
             None => {}
             Some(statsd_client) => match self.shard_id {
@@ -252,28 +259,17 @@ impl Metrics {
                         statsd_client.count(format!("malachite.consensus.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
-                    statsd_client
-                        .count_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
-                        .with_tag("shard", format!("{}", shard_id).as_str())
-                        .send();
-                }
-            },
-        }
-    }
-
-    fn gauge_with_shard(&self, key: &str, count: u64) {
-        match &self.statsd_client {
-            None => {}
-            Some(statsd_client) => match self.shard_id {
-                None => {
-                    let _ =
-                        statsd_client.gauge(format!("malachite.consensus.{}", key).as_str(), count);
-                }
-                Some(shard_id) => {
-                    statsd_client
-                        .gauge_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
-                        .with_tag("shard", format!("{}", shard_id).as_str())
-                        .send();
+                    if self.use_tags {
+                        statsd_client
+                            .count_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
+                            .with_tag("shard", format!("{}", shard_id).as_str())
+                            .send();
+                    } else {
+                        let _ = statsd_client.count(
+                            format!("shard{}.malachite.consensus.{}", shard_id, key).as_str(),
+                            count,
+                        );
+                    }
                 }
             },
         }
@@ -288,10 +284,17 @@ impl Metrics {
                         statsd_client.time(format!("malachite.consensus.{}", key).as_str(), count);
                 }
                 Some(shard_id) => {
-                    statsd_client
-                        .time_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
-                        .with_tag("shard", format!("{}", shard_id).as_str())
-                        .send();
+                    if self.use_tags {
+                        statsd_client
+                            .time_with_tags(format!("malachite.consensus.{}", key).as_str(), count)
+                            .with_tag("shard", format!("{}", shard_id).as_str())
+                            .send();
+                    } else {
+                        let _ = statsd_client.time(
+                            format!("shard{}.malachite.consensus.{}", shard_id, key).as_str(),
+                            count,
+                        );
+                    }
                 }
             },
         }
@@ -302,14 +305,14 @@ impl Metrics {
         self.count_with_shard("finalized_block", 1);
     }
 
-    pub fn peer_connected(&self, total_peers: u64) {
+    pub fn peer_connected(&self) {
         self.connected_peers.inc();
-        self.gauge_with_shard("connected_peers", total_peers);
+        self.count_with_shard("connected_peers", 1);
     }
 
-    pub fn peer_disconnected(&self, total_peers: u64) {
-        self.connected_peers.inc();
-        self.gauge_with_shard("connected_peers", total_peers);
+    pub fn peer_disconnected(&self) {
+        self.connected_peers.dec();
+        self.count_with_shard("connected_peers", -1);
     }
 
     pub fn consensus_start(&self) {
@@ -377,7 +380,7 @@ impl Metrics {
 
 impl Default for Metrics {
     fn default() -> Self {
-        Self::new(None, None)
+        Self::new(None, None, false)
     }
 }
 
