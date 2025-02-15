@@ -345,7 +345,7 @@ where
                         peer,
                         sync::Response::ValueResponse(ValueResponse { height, value }),
                     ) => {
-                        info!(%height, %request_id, "Received sync response");
+                        warn!(%height, %request_id, "Received sync response");
 
                         let Some(value) = value else {
                             error!(%height, %request_id, "Received empty value sync response");
@@ -398,7 +398,7 @@ where
                         peer,
                         sync::Request::VoteSetRequest(VoteSetRequest { height, round }),
                     ) => {
-                        info!(%height, %round, %request_id, %peer, "Received vote set request");
+                        warn!(%height, %round, %request_id, %peer, "Received vote set request");
 
                         if let Err(e) = self
                             .process_input(
@@ -426,11 +426,11 @@ where
                         }),
                     ) => {
                         if vote_set.votes.is_empty() {
-                            info!(%height, %round, %request_id, %peer, "Received an empty vote set response");
+                            warn!(%height, %round, %request_id, %peer, "Received an empty vote set response");
                             return Ok(());
                         };
 
-                        info!(%height, %round, %request_id, %peer, "Received a non-empty vote set response");
+                        warn!(%height, %round, %request_id, %peer, "Received a non-empty vote set response");
 
                         if let Err(e) = self
                             .process_input(
@@ -941,7 +941,7 @@ where
             }
 
             Effect::GetVoteSet(height, round, r) => {
-                info!(%height, %round, "Request sync to obtain the vote set from peers");
+                warn!(%height, %round, "Request sync to obtain the vote set from peers");
 
                 if let Some(sync) = &self.sync {
                     sync.cast(SyncMsg::RequestVoteSet(height, round))
@@ -961,7 +961,7 @@ where
 
                 let request_id = InboundRequestId::new(request_id_str);
 
-                info!(
+                warn!(
                     %height, %round, %request_id, vote.count = %vote_count,
                     "Sending the vote set response"
                 );

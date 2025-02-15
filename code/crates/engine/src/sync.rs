@@ -230,7 +230,7 @@ where
             }
 
             Effect::SendValueRequest(peer_id, value_request) => {
-                info!(
+                warn!(
                     height = %value_request.height, peer = %peer_id,
                     "Send the value request to peer"
                 );
@@ -265,7 +265,7 @@ where
             }
 
             Effect::SendValueResponse(request_id, value_response) => {
-                info!(
+                warn!(
                     height = %value_response.height, request = %request_id,
                     "Sending the value response"
                 );
@@ -286,7 +286,7 @@ where
                 )?;
             }
             Effect::SendVoteSetRequest(peer_id, vote_set_request) => {
-                info!(
+                warn!(
                     height = %vote_set_request.height, round = %vote_set_request.round, peer = %peer_id,
                     "Send the vote set request to peer"
                 );
@@ -330,7 +330,7 @@ where
     ) -> Result<(), ActorProcessingErr> {
         match msg {
             Msg::RequestVoteSet(height, round) => {
-                info!(%height, %round, "Make a vote set request to one of the peers");
+                warn!(%height, %round, "Make a vote set request to one of the peers");
 
                 self.process_input(&myself, state, sync::Input::GetVoteSet(height, round))
                     .await?;

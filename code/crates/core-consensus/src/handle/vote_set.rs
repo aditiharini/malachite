@@ -13,7 +13,7 @@ pub async fn on_vote_set_request<Ctx>(
 where
     Ctx: Context,
 {
-    info!(%height, %round, %request_id, "Received vote set request, retrieve the votes and send response if set is not empty");
+    warn!(%height, %round, %request_id, "Received vote set request, retrieve the votes and send response if set is not empty");
 
     let votes = state.restore_votes(height, round);
 
@@ -38,7 +38,7 @@ pub async fn on_vote_set_response<Ctx>(
 where
     Ctx: Context,
 {
-    info!(
+    warn!(
         height = %state.height(), round = %state.round(), votes.count = %response.len(),
         "Received vote set response"
     );

@@ -12,7 +12,7 @@ pub async fn on_commit_certificate<Ctx>(
 where
     Ctx: Context,
 {
-    info!(
+    warn!(
         certificate.height = %certificate.height,
         signatures = certificate.aggregated_signature.signatures.len(),
         "Processing certificate"
