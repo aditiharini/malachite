@@ -390,7 +390,6 @@ where
 
         // Apply the input to the round state machine
         let transition = round_state.apply(&info, input);
-        info!("Applying transition: valid: {}", transition.valid);
 
         // Update state
         self.round_state = transition.next_state;
